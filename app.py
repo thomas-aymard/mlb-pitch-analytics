@@ -5,7 +5,7 @@ from pathlib import Path
 
 # --- CONFIGURATION DE LA PAGE ---
 st.set_page_config(
-    page_title="MLB Pitch Arsenal Analyzer | Kodai Senga",
+    page_title="MLB Pitch Arsenal Analyzer",
     page_icon="⚾",
     layout="wide"
 )
@@ -17,34 +17,24 @@ def load_data():
     file_path = current_dir / "senga_2023_statcast.csv"
     
     if not file_path.exists():
-        st.error(f"Fichier introuvable : {file_path}. Assurez-vous que 'senga_2023_statcast.csv' est bien présent dans le répertoire.")
+        st.error(f"Fichier introuvable : {file_path}. Exécutez d'abord data_fetcher.py.")
         st.stop()
         
     df = pd.read_csv(file_path)
+    
+    # Traitement des dates pour le filtre des saisons
+    if 'game_date' in df.columns:
+        df['game_date'] = pd.to_datetime(df['game_date'])
+        df['season'] = df['game_date'].dt.year
+    else:
+        df['season'] = 2023 # Valeur par défaut si la colonne manque
+
     # Conversion des mouvements en pouces (Perspective du receveur)
     df['pfx_x_in'] = df['pfx_x'] * 12 * -1  # Inversion pour la vue receveur
     df['pfx_z_in'] = df['pfx_z'] * 12
     return df
 
 df = load_data()
-
-# --- DICTIONNAIRE BILINGUE & TEXTES PÉDAGOGIQUES ---
-PITCH_DESCRIPTIONS = {
-    "en": {
-        "4-Seam Fastball": "Primary power pitch thrown at maximum velocity, designed to overpower hitters at the top of the strike zone.",
-        "Forkball": "Senga's signature 'Ghost Fork' — mimics a fastball before dropping drastically right before the plate, making hitters swing at empty air.",
-        "Cutter": "Slightly slower than a fastball with late, sharp horizontal cutting motion away from right-handed batters.",
-        "Sweeper": "A modern slider variation emphasizing extreme horizontal sweeping movement across the plate.",
-        "Sinker": "Heavy fastball with arm-side tailing action designed to induce weak ground balls."
-    },
-    "fr": {
-        "4-Seam Fastball": "Balle rapide principale lancée à pleine vitesse, conçue pour déborder les frappeurs dans le haut de la zone de prise.",
-        "Forkball": "Le fameux 'Ghost Fork' (fourchette fantôme) de Senga : ressemble à une balle rapide mais plonge brutalement juste avant la plaque.",
-        "Cutter": "Légèrement plus lente qu'une balle rapide, avec une coupure latérale sèche et tardive qui trompe le contact du frappeur.",
-        "Sweeper": "Variante moderne du slider avec une cassure horizontale très prononcée qui traverse tout le marbre.",
-        "Sinker": "Balle rapide lourde et plongeante conçue pour forcer des roulants inoffensifs au sol."
-    }
-}
 
 # --- SIDEBAR (PARAMÈTRES ET FILTRES) ---
 st.sidebar.image("https://upload.wikimedia.org/wikipedia/en/thumb/7/7b/New_York_Mets.svg/1200px-New_York_Mets.svg.png", width=95)
@@ -54,18 +44,25 @@ st.sidebar.markdown("### Settings & Filters")
 lang = st.sidebar.radio("🌐 Language / Langue", ["Français 🇫🇷", "English 🇬🇧"])
 is_fr = lang.startswith("Français")
 
-# Filtre : types de lancers
+# Filtre : Saison
+available_seasons = sorted(df['season'].dropna().unique().tolist(), reverse=True)
+season_label = "Saison :" if is_fr else "Season:"
+selected_seasons = st.sidebar.multiselect(season_label, available_seasons, default=available_seasons)
+
+# Filtre : Types de lancers
 available_pitches = df['pitch_name'].dropna().unique().tolist()
 pitch_filter_label = "Sélectionner les lancers :" if is_fr else "Select Pitch Types:"
 selected_pitches = st.sidebar.multiselect(pitch_filter_label, available_pitches, default=available_pitches)
 
-# Filtre : posture du batteur
+# Filtre : Posture du batteur
 stance_label = "Position du frappeur :" if is_fr else "Batter Stance:"
 stance_options = ["Tous", "Droitiers (R)", "Gauchers (L)"] if is_fr else ["All", "Right-Handed (R)", "Left-Handed (L)"]
 selected_stance = st.sidebar.radio(stance_label, stance_options)
 
 # Application des filtres
-filtered_df = df[df['pitch_name'].isin(selected_pitches)]
+filtered_df = df[df['season'].isin(selected_seasons)]
+filtered_df = filtered_df[filtered_df['pitch_name'].isin(selected_pitches)]
+
 if selected_stance not in ["Tous", "All"]:
     stance_val = "R" if ("Droitiers" in selected_stance or "Right" in selected_stance) else "L"
     filtered_df = filtered_df[filtered_df['stand'] == stance_val]
@@ -74,35 +71,47 @@ total_pitches = len(filtered_df)
 
 # --- EN-TÊTE PRINCIPAL ---
 if is_fr:
-    st.title("⚾ Analyse de l'Arsenal de Lancers — Kodai Senga (2023)")
-    st.markdown("**Lanceur partant | New York Mets (MLB)** | Saison Rookie All-Star")
-    st.caption("Ce tableau de bord décortique la trajectoire, la vitesse et l'efficacité des lancers mesurés par la télémétrie radar Statcast.")
+    st.title("⚾ Analyse de la Télémétrie des Lancers (MLB)")
+    st.markdown("**Profil Analysé : Kodai Senga | Lanceur Partant | New York Mets**")
 else:
-    st.title("⚾ Pitch Arsenal Analyzer — Kodai Senga (2023)")
-    st.markdown("**Starting Pitcher | New York Mets (MLB)** | All-Star Rookie Season")
-    st.caption("This dashboard deciphers pitch movement, velocity, and effectiveness using MLB Statcast optical tracking data.")
+    st.title("⚾ Pitching Telemetry & Arsenal Analyzer (MLB)")
+    st.markdown("**Analyzed Profile: Kodai Senga | Starting Pitcher | New York Mets**")
 
 st.markdown("---")
 
-# --- SECTION PÉDAGOGIQUE (POUR LES NON-INITIÉS) ---
-with st.expander("📖 Comprendre les métriques du baseball / Understanding the Metrics"):
+# --- CONTEXTE ET ORIGINE DES DONNÉES (PÉDAGOGIE) ---
+with st.expander("📌 Contexte du Projet & Origine des Données (À lire)" if is_fr else "📌 Project Context & Data Origin (Read First)", expanded=True):
     if is_fr:
-        st.markdown("""
-        - **Vitesse (Velocity - mph) :** Vitesse de libération de la balle ($1\\text{ mph} \\approx 1.6\\text{ km/h}$). Au-dessus de $95\\text{ mph}$, c'est de l'élite mondiale.
-        - **Taux de rotation (Spin Rate - RPM) :** Nombre de tours par minute. Plus le spin est élevé, plus la balle 'monte' artificiellement ou dévie brutalement.
-        - **Mouvement Horizontal (Horizontal Break - pouces) :** Déviation latérale par rapport à une trajectoire droite (vue depuis le receveur).
-        - **Mouvement Vertical (Vertical Break - pouces) :** Effet de portance ou de chute gravitationnelle subie par la balle avant d'atteindre le frappeur.
+        st.write("""
+        **Pourquoi cette application ?**  
+        Dans le baseball moderne, l'évaluation d'un joueur ne se fait plus à l'œil nu. Les équipes (comme les New York Mets) utilisent la Data Science pour décortiquer la biomécanique et la physique de chaque lancer. Cette application reproduit un outil de *Scouting* (recrutement) analytique.
+
+        **D'où viennent ces données ?**  
+        Les données proviennent de **Statcast**, le système de suivi optique (technologie Hawk-Eye) installé dans tous les stades de la Major League Baseball (MLB). À chaque lancer, des dizaines de caméras à très haute vitesse capturent la trajectoire 3D de la balle.  
+        Ces données réelles ont été extraites via l'API publique de la MLB en utilisant le script Python `pybaseball`.
+
+        **Que cherchons-nous à analyser ?**
+        - **Vitesse (Velocity) :** La force brute du lanceur. Une balle à 95+ mph (153 km/h) laisse moins de 0.4 seconde au frappeur pour réagir.
+        - **Rotation (Spin Rate) :** Mesuré en RPM (tours par minute). Une balle qui tourne vite "résiste" à la gravité et donne l'illusion de monter, ou au contraire plonge violemment.
+        - **Mouvement (Break) :** La déviation de la balle par rapport à une trajectoire parfaitement droite. C'est ce qui fait rater la balle au batteur.
         """)
     else:
-        st.markdown("""
-        - **Release Speed (Velocity - mph) :** Ball velocity upon release ($95+\\text{ mph}$ ranks among MLB elite).
-        - **Spin Rate (RPM) :** Rotations per minute. Higher spin produces greater late-breaking movement or perceived lift.
-        - **Horizontal Break (inches) :** Lateral movement away from a straight line (Catcher's perspective).
-        - **Vertical Break (inches) :** Perceived rise or gravity-induced drop before reaching home plate.
+        st.write("""
+        **Why this application?**  
+        In modern baseball, player evaluation relies heavily on Data Science to dissect the physics of every pitch. This application simulates a front-office analytical scouting tool.
+
+        **Where does the data come from?**  
+        Data is sourced directly from **MLB Statcast**, the Hawk-Eye optical tracking system installed in all MLB stadiums. It captures the exact 3D trajectory, spin, and velocity of every pitch. The dataset was queried via the `pybaseball` Python API.
+
+        **What are we analyzing?**
+        - **Velocity:** Raw power. A 95+ mph fastball gives the hitter less than 0.4 seconds to react.
+        - **Spin Rate (RPM):** A high spin rate helps a fastball resist gravity (creating a "rising" illusion) or gives breaking balls a sharp, late bite.
+        - **Movement (Break):** The horizontal and vertical deviation from a perfectly straight trajectory.
         """)
 
 # --- CARTOUCHES KPI ---
 if total_pitches > 0:
+    st.markdown("### 📈 Métriques Globales de l'Échantillon" if is_fr else "### 📈 Sample Global Metrics")
     kpi_col1, kpi_col2, kpi_col3, kpi_col4 = st.columns(4)
     kpi_col1.metric("Lancers analysés" if is_fr else "Pitches Analyzed", f"{total_pitches:,}")
     kpi_col2.metric("Vitesse moy." if is_fr else "Avg Velocity", f"{filtered_df['release_speed'].mean():.1f} mph")
@@ -114,8 +123,8 @@ if total_pitches > 0:
 
 st.markdown("---")
 
-# --- COMMENTAIRES ET RAPPORT D'ANALYSE ADAPTATIF ---
-st.subheader("📋 Rapport d'Analyse Automatisé" if is_fr else "📋 Automated Scouting Report")
+# --- RAPPORT D'ANALYSE ADAPTATIF ---
+st.subheader("🤖 Conclusion Analytique Automatisée" if is_fr else "🤖 Automated Analytical Conclusion")
 
 if total_pitches == 0:
     st.warning("Aucune donnée disponible avec ces filtres." if is_fr else "No pitch data found with these filters.")
@@ -128,11 +137,11 @@ else:
         fb_velo = fb_df['release_speed'].mean()
         fb_spin = fb_df['release_spin_rate'].mean()
         if is_fr:
-            qual = "d'élite (très difficile à frapper)" if fb_velo >= 95.5 else "solide et agressive"
-            notes.append(f"**Balle Rapide (4-Seam Fastball) :** Vitesse moyenne de **{fb_velo:.1f} mph** avec une rotation de **{fb_spin:.0f} RPM**. Ce profil est {qual}.")
+            qual = "L'élite de la ligue." if fb_velo >= 95.5 else "Une vitesse solide pour la MLB."
+            notes.append(f"🔥 **Balle Rapide (4-Seam Fastball) :** S'établit à une moyenne de **{fb_velo:.1f} mph**. *Pourquoi c'est important ?* {qual} Combiné à une rotation de **{fb_spin:.0f} RPM**, cela crée un effet de portance qui trompe l'œil du frappeur.")
         else:
-            qual = "elite level (challenging contact)" if fb_velo >= 95.5 else "above average"
-            notes.append(f"**4-Seam Fastball Profile:** Registers an average velocity of **{fb_velo:.1f} mph** at **{fb_spin:.0f} RPM**, representing {qual} execution.")
+            qual = "Elite MLB level." if fb_velo >= 95.5 else "Solid MLB velocity."
+            notes.append(f"🔥 **4-Seam Fastball:** Sits at an average of **{fb_velo:.1f} mph**. *Why it matters:* {qual} Combined with a spin rate of **{fb_spin:.0f} RPM**, it generates 'riding' action that induces swings-and-misses.")
 
     # 2. Analyse du Ghost Fork
     fork_df = filtered_df[filtered_df['pitch_name'] == 'Forkball']
@@ -140,18 +149,17 @@ else:
         fork_pct = (len(fork_df) / total_pitches) * 100
         fork_drop = abs(fork_df['pfx_z_in'].mean())
         if is_fr:
-            notes.append(f"**Lancer Signature ('Ghost Fork') :** Utilisé **{fork_pct:.1f}%** du temps dans cet échantillon. Avec une chute verticale moyenne de **{fork_drop:.1f} pouces**, ce lancer plonge brutalement sous la batte du frappeur.")
+            notes.append(f"👻 **Lancer Signature ('Ghost Fork') :** Utilisé **{fork_pct:.1f}%** du temps. *Pourquoi c'est dévastateur ?* La balle chute brutalement de **{fork_drop:.1f} pouces** vers le sol. Le frappeur s'élance pensant frapper une balle rapide, mais la balle 'disparaît' sous sa batte.")
         else:
-            notes.append(f"**Signature 'Ghost Fork':** Accounted for **{fork_pct:.1f}%** of pitch selection in this sample, producing **{fork_drop:.1f} inches** of downward plunge.")
+            notes.append(f"👻 **Signature Pitch ('Ghost Fork'):** Used **{fork_pct:.1f}%** of the time. *Why it's devastating:* The pitch drops completely off the table by **{fork_drop:.1f} inches**. Hitters swing expecting a fastball, but the ball 'disappears' under the barrel.")
 
-    # 3. Commentaire selon la posture du frappeur (Droitier vs Gaucher)
+    # 3. Stratégie Situationnelle
     if selected_stance in ["Droitiers (R)", "Right-Handed (R)"]:
-        notes.append("🎯 **Stratégie vs Droitiers :** Senga utilise principalement ses lancers à cassure latérale (Sweeper/Cutter) pour s'éloigner des mains du frappeur." if is_fr else "🎯 **Tactical Matchup vs RHH :** Heavy reliance on glove-side break (Sweeper/Cutter) to generate swings outside the zone.")
+        notes.append("🎯 **Stratégie (vs Droitiers) :** Face aux droitiers, on observe une forte utilisation de l'axe horizontal. Les lancers fuient vers l'extérieur pour éviter le 'cœur' du marbre." if is_fr else "🎯 **Strategy (vs RHH):** Against righties, there is a clear emphasis on horizontal tunneling, forcing the batter to reach for outside pitches.")
     elif selected_stance in ["Gauchers (L)", "Left-Handed (L)"]:
-        notes.append("🎯 **Stratégie vs Gauchers :** Le Ghost Fork devient l'arme absolue pour forcer des prises sur élan dans le bas extérieur de la zone." if is_fr else "🎯 **Tactical Matchup vs LHH :** Ghost Fork serves as the ultimate wipeout weapon diving down-and-away.")
+        notes.append("🎯 **Stratégie (vs Gauchers) :** Face aux gauchers, l'axe vertical est privilégié. Le lanceur cherche à faire plonger la balle sur les pieds du frappeur." if is_fr else "🎯 **Strategy (vs LHH):** Against lefties, vertical separation is heavily utilized, burying breaking pitches in the dirt to generate strikeouts.")
 
-    # Affichage de la boîte d'explication
-    st.info("\n\n".join(notes))
+    st.success("\n\n".join(notes))
 
 st.markdown("---")
 
@@ -160,9 +168,9 @@ if total_pitches > 0:
     col_left, col_right = st.columns(2)
 
     with col_left:
-        chart_title_1 = "Profil de Déviation des Lancers (Vue Receveur)" if is_fr else "Pitch Break Profile (Catcher's POV)"
+        chart_title_1 = "Trajectoires & Déviations (Vue du Receveur)" if is_fr else "Pitch Movement Profile (Catcher's POV)"
         st.subheader(chart_title_1)
-        st.caption("Chaque point représente un lancer. Plus un point est loin du centre (0,0), plus la balle a cassé en vol." if is_fr else "Points further from (0,0) indicate sharper late-breaking aerodynamic movement.")
+        st.caption("Le centre (0,0) représente une ligne droite parfaite. Les points montrent la cassure finale de la balle." if is_fr else "Center (0,0) is a perfectly straight line. Points indicate the final breaking movement.")
         
         fig_break = px.scatter(
             filtered_df,
@@ -182,9 +190,9 @@ if total_pitches > 0:
         st.plotly_chart(fig_break, use_container_width=True)
 
     with col_right:
-        chart_title_2 = "Distribution des Vitesses (mph)" if is_fr else "Velocity Distribution (mph)"
+        chart_title_2 = "Constance de la Vitesse (mph)" if is_fr else "Velocity Consistency (mph)"
         st.subheader(chart_title_2)
-        st.caption("Comparaison de la régularité et des plages de vitesse selon le type de lancer." if is_fr else "Evaluates velocity separation and consistency across different pitch types.")
+        st.caption("Un bon lanceur doit avoir des plages de vitesse bien séparées pour brouiller les pistes." if is_fr else "Elite pitchers maintain distinct velocity bands to disrupt the batter's timing.")
         
         fig_box = px.box(
             filtered_df,
@@ -199,7 +207,7 @@ if total_pitches > 0:
         st.plotly_chart(fig_box, use_container_width=True)
 
 # --- TABLEAU DÉTAILLÉ DE L'ARSENAL ---
-st.subheader("📊 Tableau Synthétique de l'Arsenal" if is_fr else "📊 Pitch Characteristics Table")
+st.subheader("📊 Données Brutes Agrégees" if is_fr else "📊 Aggregated Raw Data")
 
 if total_pitches > 0:
     table_df = filtered_df.groupby('pitch_name').agg(
@@ -218,7 +226,6 @@ if total_pitches > 0:
 
     table_df = table_df.sort_values(by='Usage_%', ascending=False)
 
-    # Renommage selon la langue
     if is_fr:
         table_df.columns = ["Type de lancer", "Total lancers", "Vitesse moy. (mph)", "Rotation moy. (RPM)", "Déviation Horiz. (in)", "Déviation Vert. (in)", "Utilisation (%)"]
     else:
